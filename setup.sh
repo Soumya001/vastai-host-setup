@@ -92,13 +92,25 @@ collect_inputs() {
   [[ -z "$MACHINE_NAME" ]] && error "Hostname required"
 
   # Machine number for port range calculation
-  ask "\nEnter machine number (1, 2, 3, 4...) — used to calculate unique port range:"
+  ask "\nEnter machine number (1, 2, 3, 4...) — auto-calculates unique port range:"
+  ask "  Machine 1→20000-20499  2→20500-20999  3→21000-21499  4→21500-21999"
   read -rp "  Machine #: " MACHINE_NUM
   [[ -z "$MACHINE_NUM" || ! "$MACHINE_NUM" =~ ^[0-9]+$ ]] && error "Must be a number"
 
-  PORT_START=$(( 19500 + (MACHINE_NUM * 500) ))
-  PORT_END=$(( PORT_START + 499 ))
-  info "Port range for this machine: ${PORT_START}–${PORT_END}"
+  AUTO_PORT_START=$(( 19500 + (MACHINE_NUM * 500) ))
+  AUTO_PORT_END=$(( AUTO_PORT_START + 499 ))
+
+  ask "\nPort range (auto-calculated: ${AUTO_PORT_START}–${AUTO_PORT_END}) — press ENTER to accept or type custom start:"
+  read -rp "  Port range start [${AUTO_PORT_START}]: " CUSTOM_PORT_START
+  if [[ -n "$CUSTOM_PORT_START" && "$CUSTOM_PORT_START" =~ ^[0-9]+$ ]]; then
+    PORT_START="$CUSTOM_PORT_START"
+    PORT_END=$(( PORT_START + 499 ))
+    info "Custom port range: ${PORT_START}–${PORT_END}"
+  else
+    PORT_START="$AUTO_PORT_START"
+    PORT_END="$AUTO_PORT_END"
+    info "Auto port range: ${PORT_START}–${PORT_END}"
+  fi
   info "→ Forward these ports on your router to this machine's LAN IP"
 
   # Public IP
@@ -147,10 +159,10 @@ collect_inputs() {
   MIN_BID_PRICE="${MIN_BID_PRICE:-$MIN_BID}"
 
   # Speedtest server
-  ask "\nSpeedtest server ID (leave blank to auto-detect, or enter ID from speedtest.net):"
-  ask "  Popular India servers: 22709 (OneBroadband Kolkata), 1452 (Airtel)"
-  read -rp "  Server ID [22709]: " SPEEDTEST_SERVER
-  SPEEDTEST_SERVER="${SPEEDTEST_SERVER:-22709}"
+  ask "\nSpeedtest server ID — find yours at speedtest.net/servers or leave blank to skip."
+  ask "  Examples: 22709 (OneBroadband Kolkata), 1452 (Airtel India), 5114 (Comcast US)"
+  read -rp "  Server ID [auto]: " SPEEDTEST_SERVER
+  SPEEDTEST_SERVER="${SPEEDTEST_SERVER:-}"
 
   echo ""
   echo -e "${BOLD}─── Configuration Summary ───────────────────────────────${RESET}"
@@ -162,7 +174,7 @@ collect_inputs() {
   echo -e "  Gateway       : ${GREEN}$GATEWAY${RESET}"
   echo -e "  Interface     : ${GREEN}$NETWORK_IFACE${RESET}"
   echo -e "  GPU price     : ${GREEN}\$${GPU_PRICE}/hr${RESET}  (min bid \$${MIN_BID_PRICE})"
-  echo -e "  Speedtest srv : ${GREEN}$SPEEDTEST_SERVER${RESET}"
+  echo -e "  Speedtest srv : ${GREEN}${SPEEDTEST_SERVER:-auto-detect}${RESET}"
   echo -e "  Vast API key  : ${GREEN}${VAST_API_KEY:0:12}…${RESET}"
   echo -e "${BOLD}─────────────────────────────────────────────────────────${RESET}"
   echo ""
@@ -287,11 +299,14 @@ setup_nvidia_toolkit() {
 setup_sudoers() {
   step "Sudoers for dmidecode (CPU info)"
 
+  # Ensure dmidecode is installed
+  command -v dmidecode &>/dev/null || apt-get install -y dmidecode -qq
+
   SUDOERS_FILE="/etc/sudoers.d/vastai_dmidecode"
   echo "vastai_kaalia ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode" > "$SUDOERS_FILE"
   chown root:root "$SUDOERS_FILE"
   chmod 440 "$SUDOERS_FILE"
-  success "dmidecode sudoers configured"
+  success "dmidecode installed and sudoers configured"
 }
 
 # ── Speedtest mirror ──────────────────────────────────────────────────────────
@@ -299,12 +314,13 @@ setup_speedtest() {
   step "Speedtest server configuration"
 
   MIRRORS_FILE="/var/lib/vastai_kaalia/data/speedtest_mirrors"
-  if [[ -f "$MIRRORS_FILE" ]]; then
+  if [[ -n "$SPEEDTEST_SERVER" ]]; then
+    echo "$SPEEDTEST_SERVER" > "$MIRRORS_FILE"
     chown vastai_kaalia:docker "$MIRRORS_FILE" 2>/dev/null || true
+    success "Speedtest server: $SPEEDTEST_SERVER"
+  else
+    info "No speedtest server set — Kaalia will auto-select nearest server"
   fi
-  echo "$SPEEDTEST_SERVER" > "$MIRRORS_FILE"
-  chown vastai_kaalia:docker "$MIRRORS_FILE" 2>/dev/null || true
-  success "Speedtest server: $SPEEDTEST_SERVER"
 }
 
 # ── Protected instances directory ─────────────────────────────────────────────
@@ -365,16 +381,25 @@ setup_vastai_cli() {
   step "Vast.ai CLI"
 
   if ! command -v pip3 &>/dev/null; then
-    apt-get install -y python3-pip
+    apt-get install -y python3-pip -qq
   fi
 
-  pip3 install vastai --break-system-packages -q 2>/dev/null || pip3 install vastai -q
+  pip3 install vastai --break-system-packages -q 2>/dev/null || pip3 install vastai -q 2>/dev/null || true
 
-  VASTAI_BIN=$(find /root/.local/bin /usr/local/bin /home -name vastai -type f 2>/dev/null | head -1)
-  [[ -z "$VASTAI_BIN" ]] && VASTAI_BIN="vastai"
+  # Find binary — check root's local bin first, then system paths
+  VASTAI_BIN=""
+  for p in /root/.local/bin/vastai /usr/local/bin/vastai /usr/bin/vastai; do
+    [[ -x "$p" ]] && VASTAI_BIN="$p" && break
+  done
+  # Fall back to PATH
+  [[ -z "$VASTAI_BIN" ]] && VASTAI_BIN=$(command -v vastai 2>/dev/null || echo "")
+  [[ -z "$VASTAI_BIN" ]] && warn "vastai CLI not found in PATH — may need to re-run or add ~/.local/bin to PATH" && return
 
   $VASTAI_BIN set api-key "$VAST_API_KEY" 2>/dev/null || true
-  success "vastai CLI installed: $($VASTAI_BIN --version 2>/dev/null || echo 'check path')"
+
+  # Export for use in later functions
+  export VASTAI_BIN
+  success "vastai CLI: $VASTAI_BIN ($($VASTAI_BIN --version 2>/dev/null || echo 'installed'))"
 }
 
 # ── Restart services ──────────────────────────────────────────────────────────
@@ -424,7 +449,7 @@ list_machine() {
     return
   fi
 
-  VASTAI_BIN=$(find /root/.local/bin /home -name vastai -type f 2>/dev/null | head -1 || echo "vastai")
+  VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
 
   # End date: 90 days from now
   END_DATE=$(python3 -c "import time; print(int(time.time() + 90*86400))")
@@ -446,7 +471,7 @@ run_self_test() {
   MACHINE_ID=$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || echo "")
   [[ -z "$MACHINE_ID" ]] && warn "Machine ID not found — skipping self-test" && return
 
-  VASTAI_BIN=$(find /root/.local/bin /home -name vastai -type f 2>/dev/null | head -1 || echo "vastai")
+  VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
 
   read -rp "Run self-test now? This takes ~3 minutes and verifies the machine on Vast.ai [Y/n]: " run_test
   [[ "${run_test,,}" == "n" ]] && info "Skipped — run later: $VASTAI_BIN self-test machine --ignore-requirements $MACHINE_ID" && return
@@ -455,47 +480,99 @@ run_self_test() {
 }
 
 # ── Router port forwarding info ───────────────────────────────────────────────
+# Called once before install (with estimated ports) and once after (with actual ports)
 show_router_guide() {
-  step "Router port forwarding required"
+  local title="${1:-Estimated}"
+
+  # Try to detect actual Kaalia listening ports after install
+  ACTUAL_PORTS=$(ss -tlnp 2>/dev/null | grep -oP '0\.0\.0\.0:\K[0-9]{4,5}' \
+    | grep -v '^22$' | grep -v '^53$' | sort -u | tr '\n' ' ' || echo "")
+
+  if [[ -n "$ACTUAL_PORTS" && "$title" == "Actual" ]]; then
+    PORT_DISPLAY="$ACTUAL_PORTS (detected)"
+  else
+    PORT_DISPLAY="${PORT_START}–${PORT_END} (estimated — confirm after Kaalia starts)"
+  fi
+
+  step "Router Port Forwarding — ${title} ports"
   echo ""
-  echo -e "  Configure these port forwards on your router:"
-  echo -e "  ┌──────────────────────────────────────────────────────┐"
-  echo -e "  │  External Ports    →  Internal IP     Protocol       │"
-  echo -e "  ├──────────────────────────────────────────────────────┤"
-  echo -e "  │  ${PORT_START}–${PORT_END}  →  ${LAN_IP}    TCP+UDP  │"
-  echo -e "  │  22                →  ${LAN_IP}    TCP      │"
-  echo -e "  └──────────────────────────────────────────────────────┘"
+  echo -e "  ${YELLOW}⚠  Configure these rules on your router BEFORE testing:${RESET}"
   echo ""
-  echo -e "  For multiple machines, each machine needs its own port range:"
-  echo -e "  Machine 1: 20000–20499  |  Machine 2: 20500–20999"
-  echo -e "  Machine 3: 21000–21499  |  Machine 4: 21500–21999"
+  echo -e "  ┌────────────────────────────────────────────────────────────┐"
+  echo -e "  │  External Port(s)           →  This Machine    Protocol    │"
+  echo -e "  ├────────────────────────────────────────────────────────────┤"
+  echo -e "  │  ${PORT_DISPLAY}  →  ${LAN_IP}   TCP+UDP    │"
+  echo -e "  │  22 (or custom SSH port)    →  ${LAN_IP}   TCP        │"
+  echo -e "  └────────────────────────────────────────────────────────────┘"
   echo ""
+  echo -e "  ${CYAN}Multi-machine port ranges (one per machine):${RESET}"
+  echo -e "  Machine 1 → 20000–20499  |  Machine 2 → 20500–20999"
+  echo -e "  Machine 3 → 21000–21499  |  Machine 4 → 21500–21999"
+  echo ""
+  echo -e "  ${CYAN}To confirm actual Kaalia ports after setup:${RESET}"
+  echo -e "    ss -tlnp | grep -v '127\\.' | grep LISTEN"
+  echo ""
+  read -rp "  Press ENTER once you have configured port forwarding..." _
 }
 
 # ── Final summary ─────────────────────────────────────────────────────────────
 print_summary() {
   MACHINE_ID=$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || echo "pending")
+  VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
+
+  # Detect actual listening ports from Kaalia
+  ACTUAL_PORTS=$(ss -tlnp 2>/dev/null | grep -oP '0\.0\.0\.0:\K2[0-9]{4}' | sort -u | tr '\n' ' ' || echo "${PORT_START}–${PORT_END}")
+
+  # Check verification status from Vast.ai API
+  VERIFIED="unknown"
+  if [[ -n "$MACHINE_ID" && "$MACHINE_ID" != "pending" ]]; then
+    VERIFIED=$(curl -s "https://console.vast.ai/api/v0/machines/?api_key=${VAST_API_KEY}" 2>/dev/null \
+      | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+for m in data.get('machines',[]):
+    if str(m.get('id')) == '${MACHINE_ID}':
+        print(m.get('verification','unknown'))
+" 2>/dev/null || echo "unknown")
+  fi
+
   echo ""
-  echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${GREEN}║              Setup Complete!                         ║${RESET}"
-  echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${RESET}"
+  echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${BOLD}${GREEN}║                   Setup Complete!                        ║${RESET}"
+  echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""
   echo -e "  Machine ID    : ${CYAN}$MACHINE_ID${RESET}"
   echo -e "  Hostname      : ${CYAN}$MACHINE_NAME${RESET}"
   echo -e "  LAN IP        : ${CYAN}${LAN_IP}/${SUBNET_PREFIX}${RESET}"
   echo -e "  Public IP     : ${CYAN}$PUBLIC_IP${RESET}"
-  echo -e "  Port range    : ${CYAN}${PORT_START}–${PORT_END}${RESET}"
+  echo -e "  Kaalia ports  : ${CYAN}${ACTUAL_PORTS}${RESET}  ← forward these on router"
+  echo -e "  GPU price     : ${CYAN}\$${GPU_PRICE}/hr${RESET}"
+  echo -e "  Listing ends  : ${CYAN}90 days from now${RESET} (run scripts/relist.sh to renew)"
   echo ""
   echo -e "  Services:"
-  echo -e "    vastai.service        : $(systemctl is-active vastai.service 2>/dev/null)"
-  echo -e "    vast_metrics.service  : $(systemctl is-active vast_metrics.service 2>/dev/null)"
-  echo -e "    cleanup timer         : $(systemctl is-active vastai_docker_cleanup.timer 2>/dev/null)"
+  svc_ok() { systemctl is-active --quiet "$1" 2>/dev/null && echo -e "${GREEN}running${RESET}" || echo -e "${RED}stopped${RESET}"; }
+  echo -e "    vastai.service              : $(svc_ok vastai.service)"
+  echo -e "    vast_metrics.service        : $(svc_ok vast_metrics.service)"
+  echo -e "    vastai_docker_cleanup.timer : $(svc_ok vastai_docker_cleanup.timer)"
+  echo ""
+  if [[ "$VERIFIED" == "verified" ]]; then
+    echo -e "  Verification  : ${GREEN}✔ VERIFIED${RESET}"
+  else
+    echo -e "  Verification  : ${YELLOW}⚠ UNVERIFIED${RESET}"
+    echo -e "    → Run self-test: $VASTAI_BIN self-test machine --ignore-requirements $MACHINE_ID"
+    echo -e "    → Requires: RAM ≥ GPU VRAM, port forwarding working"
+    echo -e "    → Internet ≥500 Mbps needed for verified badge (still rents without it)"
+  fi
+  echo ""
+  echo -e "  Disk cleanup  : ${GREEN}Auto-cleanup timer active${RESET} — runs hourly after rentals"
+  echo -e "    → Prunes stopped containers + build cache + fstrim (reclaims docker loop space)"
+  echo -e "    → Manual: sudo bash scripts/cleanup_now.sh"
   echo ""
   echo -e "  Useful commands:"
-  echo -e "    Check logs   : journalctl -u vastai.service -f"
-  echo -e "    Self-test    : vastai self-test machine --ignore-requirements $MACHINE_ID"
-  echo -e "    Check status : vastai show machines"
-  echo -e "    Re-list      : vastai list machine $MACHINE_ID --price_gpu $GPU_PRICE --end_date \$(date -d '+90 days' +%s)"
+  echo -e "    ${CYAN}vastai show machines${RESET}                              — live status"
+  echo -e "    ${CYAN}journalctl -u vastai.service -f${RESET}                   — kaalia logs"
+  echo -e "    ${CYAN}bash scripts/status.sh${RESET}                            — quick health check"
+  echo -e "    ${CYAN}bash scripts/relist.sh${RESET}                            — refresh 90-day listing"
   echo ""
 }
 
@@ -506,7 +583,8 @@ main() {
   echo ""
   preflight
   collect_inputs
-  show_router_guide
+  # Show estimated ports first so user can start configuring router while setup runs
+  show_router_guide "Estimated — configure now"
   setup_hostname
   setup_static_ip
   setup_kaalia
@@ -519,6 +597,8 @@ main() {
   setup_vastai_cli
   restart_services
   push_machine_info
+  # Show actual ports detected from Kaalia — confirm/update router rules if different
+  show_router_guide "Actual — verify router matches"
   list_machine
   run_self_test
   print_summary
