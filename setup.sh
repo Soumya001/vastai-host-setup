@@ -62,15 +62,20 @@ preflight() {
   if ! command -v docker &>/dev/null; then
     warn "Docker not found — installing..."
     apt-get update -qq
-    apt-get install -y ca-certificates curl gnupg
+    apt-get install -y ca-certificates curl gnupg -qq
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    # Use correct repo for distro (ubuntu vs debian)
+    . /etc/os-release
+    DOCKER_DISTRO="${ID}"
+    [[ "$ID" == "linuxmint" || "$ID" == "pop" ]] && DOCKER_DISTRO="ubuntu"
+    curl -fsSL "https://download.docker.com/linux/${DOCKER_DISTRO}/gpg" | \
+      gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      https://download.docker.com/linux/${DOCKER_DISTRO} ${VERSION_CODENAME} stable" \
       > /etc/apt/sources.list.d/docker.list
     apt-get update -qq
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin -qq
     systemctl enable --now docker
   fi
   success "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
@@ -124,7 +129,7 @@ collect_inputs() {
   # Network interface
   DEFAULT_IFACE=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
   ask "\nNetwork interface for this machine:"
-  ip link show | grep -E '^[0-9]+:' | awk -F': ' '{print "  " $2}' | grep -v lo
+  ip link show 2>/dev/null | grep -E '^[0-9]+:' | awk -F': ' '{print "  " $2}' | grep -v lo || true
   read -rp "  Interface [${DEFAULT_IFACE}]: " NETWORK_IFACE
   NETWORK_IFACE="${NETWORK_IFACE:-$DEFAULT_IFACE}"
 
@@ -406,16 +411,30 @@ setup_vastai_cli() {
 restart_services() {
   step "Restarting Vast.ai services"
 
+  # Fix launch_metrics_pusher.sh permissions (missing +x causes vast_metrics exit 203)
   LAUNCH_METRICS="/var/lib/vastai_kaalia/latest/launch_metrics_pusher.sh"
   [[ -f "$LAUNCH_METRICS" ]] && chmod +x "$LAUNCH_METRICS"
+
+  # Fix speedtest_mirrors ownership (Permission denied if not owned by vastai_kaalia)
+  MIRRORS_FILE="/var/lib/vastai_kaalia/data/speedtest_mirrors"
+  [[ -f "$MIRRORS_FILE" ]] && chown vastai_kaalia:docker "$MIRRORS_FILE" 2>/dev/null || true
+
+  # Fix corrupted vastai/test:common image (causes "Unknown CPU" on dashboard)
+  if docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q 'vastai/test:common'; then
+    info "Refreshing vastai/test:common image (prevents Unknown CPU issue)..."
+    docker rmi vastai/test:common 2>/dev/null || true
+    docker pull vastai/test:common 2>/dev/null || true
+  fi
 
   systemctl daemon-reload
   systemctl restart vastai.service 2>/dev/null || true
   systemctl restart vast_metrics.service 2>/dev/null || true
+
+  # Disable bouncer — launch_bouncer.sh often missing, causes service failure
   systemctl stop vastai_bouncer.service 2>/dev/null || true
   systemctl disable vastai_bouncer.service 2>/dev/null || true
 
-  sleep 5
+  sleep 8
   systemctl is-active --quiet vastai.service && success "vastai.service running" \
     || warn "vastai.service not running — check: journalctl -u vastai.service"
   systemctl is-active --quiet vast_metrics.service && success "vast_metrics.service running" \
@@ -456,6 +475,7 @@ list_machine() {
 
   $VASTAI_BIN list machine "$MACHINE_ID" \
     --price_gpu "$GPU_PRICE" \
+    --price_min_bid "$MIN_BID_PRICE" \
     --price_disk 0.01 \
     --price_inetu 0.005 \
     --price_inetd 0.005 \
@@ -485,11 +505,16 @@ show_router_guide() {
   local title="${1:-Estimated}"
 
   # Try to detect actual Kaalia listening ports after install
-  ACTUAL_PORTS=$(ss -tlnp 2>/dev/null | grep -oP '0\.0\.0\.0:\K[0-9]{4,5}' \
-    | grep -v '^22$' | grep -v '^53$' | sort -u | tr '\n' ' ' || echo "")
+  # Kaalia uses ports in the 20000–65000 range; filter out system ports
+  ACTUAL_PORTS=$(ss -tlnp 2>/dev/null \
+    | grep -oP '(?:0\.0\.0\.0|::):\K[0-9]+' \
+    | awk '$1 > 1024 && $1 != 5900' \
+    | grep -v '^22$' | grep -v '^53$' | grep -v '^2375$' \
+    | sort -un | tr '\n' ' ' 2>/dev/null || echo "")
 
-  if [[ -n "$ACTUAL_PORTS" && "$title" == "Actual" ]]; then
-    PORT_DISPLAY="$ACTUAL_PORTS (detected)"
+  if [[ -n "$ACTUAL_PORTS" && "$title" == "Actual"* ]]; then
+    PORT_DISPLAY="$ACTUAL_PORTS"
+    info "Detected Kaalia ports: $ACTUAL_PORTS"
   else
     PORT_DISPLAY="${PORT_START}–${PORT_END} (estimated — confirm after Kaalia starts)"
   fi
@@ -520,8 +545,12 @@ print_summary() {
   MACHINE_ID=$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || echo "pending")
   VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
 
-  # Detect actual listening ports from Kaalia
-  ACTUAL_PORTS=$(ss -tlnp 2>/dev/null | grep -oP '0\.0\.0\.0:\K2[0-9]{4}' | sort -u | tr '\n' ' ' || echo "${PORT_START}–${PORT_END}")
+  # Detect actual listening ports from Kaalia (ports >1024, not 2375/Docker API, not SSH)
+  ACTUAL_PORTS=$(ss -tlnp 2>/dev/null \
+    | grep -oP '(?:0\.0\.0\.0|::):\K[0-9]+' \
+    | awk '$1 > 1024 && $1 != 2375 && $1 != 5900' \
+    | grep -v '^22$' | grep -v '^53$' \
+    | sort -un | tr '\n' ' ' 2>/dev/null || echo "${PORT_START}–${PORT_END}")
 
   # Check verification status from Vast.ai API
   VERIFIED="unknown"
