@@ -100,10 +100,10 @@ The script tells you **exactly which ports to forward**. Example for 4 machines:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Machine 1 → forward ports 20000–20499 → 192.168.0.X    │
-│  Machine 2 → forward ports 20500–20999 → 192.168.0.Y    │
-│  Machine 3 → forward ports 21000–21499 → 192.168.0.Z    │
-│  Machine 4 → forward ports 21500–21999 → 192.168.0.W    │
+│  Machine 1 → forward ports 20000–20499 → 192.168.0.X     │
+│  Machine 2 → forward ports 20500–20999 → 192.168.0.Y     │
+│  Machine 3 → forward ports 21000–21499 → 192.168.0.Z     │
+│  Machine 4 → forward ports 21500–21999 → 192.168.0.W     │
 └──────────────────────────────────────────────────────────┘
 ```
 
