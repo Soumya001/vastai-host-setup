@@ -1,147 +1,182 @@
+<div align="center">
+
 # 🖥️ Vast.ai Host Setup
 
-> **One command to list your GPU machine on Vast.ai and start earning.**
+### One command to list your GPU machine on Vast.ai and start earning crypto
 
-![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Ubuntu%2022.04%2B-blue?logo=linux)
-![GPU](https://img.shields.io/badge/GPU-NVIDIA%20Required-green?logo=nvidia)
-![License](https://img.shields.io/badge/License-MIT-yellow)
-![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+[![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Debian-orange?logo=ubuntu&logoColor=white)](https://ubuntu.com)
+[![GPU](https://img.shields.io/badge/GPU-NVIDIA%20Required-76B900?logo=nvidia&logoColor=white)](https://nvidia.com)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](https://github.com/Soumya001/vastai-host-setup)
+[![Vast.ai](https://img.shields.io/badge/Platform-Vast.ai-purple)](https://vast.ai)
+
+<br/>
+
+> **Automates everything:** static IP, port forwarding guide, Kaalia daemon install, Docker config, NVIDIA setup, marketplace listing, self-test verification, and hourly storage cleanup — all from a single interactive script.
+
+</div>
 
 ---
 
-## 🚀 Quick Start
+## ⚡ Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/vastai-host-setup/main/setup.sh -o setup.sh
+curl -fsSL https://raw.githubusercontent.com/Soumya001/vastai-host-setup/main/setup.sh -o setup.sh
 sudo bash setup.sh
 ```
 
-> Answer the prompts → forward ports on router → done. Machine live in **~5 minutes**.
+> Answer the prompts → configure router ports → machine goes live in **~10 minutes**.
 
 ---
 
-## 🖥️ Can I List My Device?
+## 🎯 What This Project Does
+
+Most GPU owners lose money because setup is complex. This script handles **everything** needed to list a machine on [Vast.ai](https://vast.ai) — the GPU cloud marketplace where your idle hardware earns real money.
+
+**Problems it solves:**
+- 🔧 Kaalia installer crashes on Python 3.13+ → **auto-patched**
+- 🌐 Public IP & ports not configured → **auto-detected & guided**
+- 🔑 API key setup scattered → **single input, applied everywhere**
+- ❓ Unknown CPU showing on dashboard → **Docker image corruption fix**
+- 💾 Disk fills up after rentals → **hourly auto-cleanup with fstrim**
+- ✅ Machine stays unverified → **self-test runs automatically**
+
+---
+
+## 🖥️ Compatible Devices
 
 | Device | Supported | Notes |
 |--------|:---------:|-------|
-| 🐧 Linux + NVIDIA GPU | ✅ **Yes** | Full support — best earnings |
+| 🐧 **Linux + NVIDIA GPU** | ✅ **Yes** | Full support — best earnings |
 | 🐧 Linux + AMD GPU | ⚠️ Partial | Limited workload support |
 | 🪟 Windows | ❌ No | Kaalia daemon is Linux-only |
-| 🍎 Mac (Intel / Apple Silicon) | ❌ No | No CUDA support |
-| 🍓 Raspberry Pi / ARM | ❌ No | Requires x86_64 |
+| 🍎 Mac | ❌ No | No CUDA support |
 
-> 💡 You can **manage** your machines from any device (Mac, Windows, Linux) via SSH.
-> The **machine being listed** must be Linux with NVIDIA GPU.
+> 💡 **Manage from anywhere:** SSH into your Linux machine from Mac, Windows, or Linux.
 
 ---
 
-## 📋 Before You Start
+## 📋 Requirements
 
-| Requirement | Details |
-|-------------|---------|
-| 🐧 OS | Ubuntu 22.04 / 24.04 or Debian 12 |
-| 🎮 GPU | NVIDIA RTX / Tesla / A-series with drivers |
-| 🧠 RAM | **Must be ≥ GPU VRAM** *(e.g. RTX 5080 16GB → need 17GB+ RAM)* |
-| 💾 Storage | 200 GB+ SSD recommended |
-| 🌐 Internet | 100 Mbps+ (500 Mbps+ for verified badge) |
-| 🔑 Account | [Vast.ai](https://vast.ai) account + API key |
-| 🔀 Router | Access to add port forwarding rules |
-
-Get your API key: **[console.vast.ai → Account → API Keys](https://console.vast.ai/)**
+| | Minimum |
+|--|---------|
+| 🐧 **OS** | Ubuntu 22.04 / 24.04 or Debian 12 |
+| 🎮 **GPU** | NVIDIA RTX / Tesla / A-series with drivers installed |
+| 🧠 **RAM** | **Must be ≥ GPU VRAM** *(RTX 5080 16GB needs 17GB+ RAM)* |
+| 💾 **Storage** | 200 GB+ SSD recommended |
+| 🌐 **Internet** | 100 Mbps+ (500 Mbps+ for verified badge) |
+| 🔑 **Account** | [Vast.ai](https://vast.ai) account + API key |
+| 🔀 **Router** | Access to add port forwarding rules |
 
 ---
 
-## 📦 Setup in 3 Steps
+## 🚀 Setup — Step by Step
 
-### Step 1 — Download & Run
+### 1. Download & Run
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/vastai-host-setup/main/setup.sh -o setup.sh
+curl -fsSL https://raw.githubusercontent.com/Soumya001/vastai-host-setup/main/setup.sh -o setup.sh
 sudo bash setup.sh
 ```
 
-### Step 2 — Answer the Prompts
+### 2. Answer the Prompts
 
-The script will ask for:
+| Prompt | Auto-detected? | Notes |
+|--------|:--------------:|-------|
+| Vast.ai API key | ❌ | [console.vast.ai → Account](https://console.vast.ai/) |
+| Hostname | ❌ | e.g. `gpu-rig-1` |
+| Machine number | ❌ | Sequential per machine (1, 2, 3...) |
+| Port range | ✅ Auto-calc | Can override if needed |
+| Public IP | ✅ Auto-detect | Your router's WAN IP |
+| LAN IP | ✅ Auto-detect | This machine's fixed internal IP |
+| Gateway | ✅ Auto-detect | Router IP |
+| Network interface | ✅ Auto-detect | NIC name |
+| GPU price $/hr | ❌ | Check [vast.ai marketplace](https://vast.ai) |
+| Speedtest server | Optional | Leave blank to auto-select |
 
-| Prompt | Example | Where to Find |
-|--------|---------|---------------|
-| `Vast.ai API key` | `3ff927d1...` | [console.vast.ai → Account](https://console.vast.ai/) |
-| `Hostname` | `gpu-rig-1` | Your choice |
-| `Machine number` | `1` | Sequential per machine (1, 2, 3...) |
-| `Public IP` | `203.0.113.1` | Auto-detected or check [whatismyip.com](https://whatismyip.com) |
-| `LAN IP` | `192.168.0.100` | Fixed internal IP for this machine |
-| `GPU price ($/hr)` | `0.20` | Check [vast.ai marketplace](https://vast.ai) for rates |
-
-### Step 3 — Configure Router Port Forwarding
+### 3. Configure Router Port Forwarding
 
 The script tells you **exactly which ports to forward**. Example for 4 machines:
 
 ```
-📡 Machine 1 → forward ports 20000–20499 → 192.168.0.X
-📡 Machine 2 → forward ports 20500–20999 → 192.168.0.Y
-📡 Machine 3 → forward ports 21000–21499 → 192.168.0.Z
-📡 Machine 4 → forward ports 21500–21999 → 192.168.0.W
+┌──────────────────────────────────────────────────────────┐
+│  Machine 1 → forward ports 20000–20499 → 192.168.0.X    │
+│  Machine 2 → forward ports 20500–20999 → 192.168.0.Y    │
+│  Machine 3 → forward ports 21000–21499 → 192.168.0.Z    │
+│  Machine 4 → forward ports 21500–21999 → 192.168.0.W    │
+└──────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 🔧 What Gets Installed
-
-| Component | Purpose |
-|-----------|---------|
-| **Kaalia daemon** | Vast.ai host agent (manages containers) |
-| **NVIDIA container toolkit** | GPU access inside Docker |
-| **Static IP (netplan)** | Stable LAN IP that survives reboots |
-| **dmidecode sudoers** | Lets Kaalia read CPU info |
-| **Auto-cleanup timer** | Hourly cleanup after rentals (frees disk) |
-| **vastai CLI** | Command line tool to manage listings |
+All machines can share **one public IP** — port ranges separate them.
 
 ---
 
-## 💻 Multiple Machines Setup
+## 🔧 What Gets Configured Automatically
 
-Run `setup.sh` on **each machine separately**. Enter a different machine number each time.
-All machines can share **one public IP** — unique port ranges separate them.
+| Step | What Happens |
+|------|-------------|
+| 🛠️ Pre-flight | Checks OS, NVIDIA drivers, Docker |
+| 🌍 Static IP | Configures via netplan (survives reboots) |
+| ⚙️ Kaalia Daemon | Downloads, patches Python 3.13+ fix, installs |
+| 🐳 Docker | Sets nvidia runtime without breaking non-GPU containers |
+| 🎮 NVIDIA Toolkit | Installs + verifies GPU accessible in Docker |
+| 📖 dmidecode | Installs + sudoers (fixes "Unknown CPU" on dashboard) |
+| 🏃 Services | Starts vastai + metrics, disables broken bouncer |
+| 🔄 Auto-cleanup | Hourly timer: prune containers + build cache + fstrim |
+| 📋 Listing | Lists machine on marketplace with your pricing |
+| ✅ Self-test | Runs Vast.ai verification (GPU, RAM, ECC, NCCL tests) |
 
-```bash
-# Machine 1
-sudo bash setup.sh  # enter machine number: 1
+---
 
-# Machine 2 (different LAN IP, same router)
-sudo bash setup.sh  # enter machine number: 2
+## 🛠️ Included Scripts
+
+```
+vastai-host-setup/
+├── setup.sh              ← Full one-command setup (run this first)
+├── push.sh               ← Push updates to GitHub
+├── README.md
+└── scripts/
+    ├── status.sh         ← Live machine health check
+    ├── cleanup_now.sh    ← Manual docker prune + fstrim
+    └── relist.sh         ← Refresh 6-month marketplace listing
 ```
 
----
-
-## 🛠️ Commands Reference
-
 ```bash
-# Full health check
+# Health check
 bash scripts/status.sh
 
-# Clean up after a rental (docker prune + fstrim)
+# Clean storage after rental (safe — skips if rented)
 sudo bash scripts/cleanup_now.sh
 
-# Refresh 90-day marketplace listing
+# Refresh listing (run every ~5 months)
 bash scripts/relist.sh
-
-# Push this repo to GitHub
-bash push.sh "your message"
 ```
 
 ---
 
-## 📊 After Setup — Dashboard
+## 💾 Auto Storage Cleanup
 
-Check your machines at **[console.vast.ai/host/machines](https://console.vast.ai/host/machines)**
+After every rental, a **systemd timer fires hourly** and:
+1. 🛑 Checks no rental containers (`C.*`) are running
+2. 🗑️ Prunes stopped containers + all build cache
+3. 💿 Runs `fstrim` on Docker loop filesystem → **reclaims hundreds of GB**
 
-What you'll see:
-- 🟢 **Verified** — passed self-test (all GPU tests + RAM ≥ VRAM)
-- 🟡 **Unverified** — listed but self-test not passed yet
-- 💰 **Earnings** — shown per hour and per day
-- 🌡️ **GPU Temp** — live temperature monitoring
-- 📶 **Internet speed** — upload/download in Mbps
+Keeps machines at **~4–9% disk usage** when idle instead of ballooning to 30–40%.
+
+---
+
+## ✅ Verification
+
+Vast.ai verifies machines that pass the self-test:
+
+| Test | Requirement |
+|------|------------|
+| ResNet18 GPU test | Must pass |
+| ECC memory test | Must pass |
+| NCCL distributed test | Must pass |
+| Stress test (60s) | Must pass |
+| **RAM ≥ GPU VRAM** | **Hard requirement — cannot bypass** |
+| Internet ≥ 500 Mbps | For verified badge (still rents without) |
 
 ---
 
@@ -149,81 +184,65 @@ What you'll see:
 
 | ❌ Problem | ✅ Fix |
 |-----------|--------|
-| "Unknown CPU" on dashboard | `sudo systemctl restart vastai.service` |
-| Internet speed shows 0 | Wait 10 min after setup — auto-reports |
-| Self-test: **RAM < VRAM** | Add physical RAM — cannot be bypassed |
+| Installer crashes (Python 3.13+) | Auto-patched by setup.sh |
+| "Unknown CPU" on dashboard | Restart `vastai.service` |
+| Speed showing 0 Mbps | Wait 10 min — Kaalia auto-reports |
+| Self-test: **RAM < VRAM** | Add physical RAM — hardware requirement |
 | Self-test: **No offers found** | `bash scripts/relist.sh` |
-| Non-GPU containers fail | Remove `"default-runtime":"nvidia"` from `/etc/docker/daemon.json` |
-| `vastai_bouncer` service fails | `sudo systemctl disable --now vastai_bouncer.service` |
-| Speed stuck low | Restart kaalia: `sudo systemctl restart vastai.service` |
+| Non-GPU containers fail | Ensure `default-runtime` NOT set to `nvidia` in daemon.json |
+| `vastai_bouncer` fails | Auto-disabled by setup.sh |
+| Storage fills up | Auto-cleanup timer handles it hourly |
 
 ---
 
-## 🌐 Managing from Any Device
+## 🌐 Manage from Any Device
 
-You manage your Linux GPU machines via SSH from anywhere:
-
-**Mac or Linux:**
 ```bash
-ssh youruser@192.168.0.X    # local network
-ssh youruser@YOUR_PUBLIC_IP  # over internet (if SSH port forwarded)
+# Mac / Linux
+ssh youruser@YOUR_PUBLIC_IP
+
+# Windows — use Windows Terminal or PuTTY
+ssh youruser@YOUR_PUBLIC_IP
 ```
 
-**Windows:**
-- [Windows Terminal](https://aka.ms/terminal) → `ssh youruser@ip`
-- [VS Code Remote SSH](https://code.visualstudio.com/docs/remote/ssh)
-- [PuTTY](https://putty.org)
+Check your machines anytime at **[console.vast.ai/host/machines](https://console.vast.ai/host/machines)**
 
 ---
 
-## ⚠️ Verification Requirements
+## ❤️ Support This Project
 
-| Requirement | Status |
-|-------------|--------|
-| GPU tests (ResNet, ECC, NCCL, stress) | Tested by self-test |
-| RAM ≥ GPU VRAM | Hard requirement — can't bypass |
-| Internet ≥ 500 Mbps | For verified badge (machine still rents without it) |
+If this saved you hours of setup time, consider a small donation:
 
-Run self-test manually:
-```bash
-vastai self-test machine --ignore-requirements YOUR_MACHINE_ID
+<div align="center">
+
+### Bitcoin (BTC)
 ```
-
----
-
-## 🔄 Auto Cleanup (Runs After Every Rental)
-
-A systemd timer fires every hour. If no rental is running it:
-1. 🗑️ Removes stopped containers
-2. 🧹 Clears Docker build cache
-3. 💾 Runs `fstrim` to return freed blocks to OS
-
-Keeps disk at **4–9% used** when idle instead of filling up over time.
-
----
-
-## 📁 Folder Structure
-
+bc1qevyu9pngzdq54v592whjf9tm5mcztv46zpu40p
 ```
-vastai-host-setup/
-├── setup.sh              ← Main setup (run this)
-├── push.sh               ← One-click git push
-├── README.md             ← This file
-├── .gitignore
-└── scripts/
-    ├── status.sh         ← Health check
-    ├── cleanup_now.sh    ← Manual cleanup
-    └── relist.sh         ← Refresh marketplace listing
+![BTC](https://img.shields.io/badge/BTC-bc1qevyu9pngzdq54v592whjf9tm5mcztv46zpu40p-F7931A?logo=bitcoin&logoColor=white)
+
+### Bitcoin Cash (BCH)
 ```
+qp2yjsakctklphd32f3ut75zc08ntcrnf5ryhfvj86
+```
+![BCH](https://img.shields.io/badge/BCH-qp2yjsakctklphd32f3ut75zc08ntcrnf5ryhfvj86-8DC351?logo=bitcoincash&logoColor=white)
+
+*Every satoshi helps keep this project maintained and updated!* 🙏
+
+</div>
 
 ---
 
 ## 📄 License
 
-MIT — free to use and modify.
+MIT — free to use, modify, and share.
 
 ---
 
 <div align="center">
-Made for GPU hosts who want a clean, automated Vast.ai setup.
+
+**Built from real-world experience setting up multiple GPU rigs on Vast.ai.**
+<br/>
+⭐ Star this repo if it helped you!
+
 </div>
