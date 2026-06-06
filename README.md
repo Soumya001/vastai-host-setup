@@ -215,17 +215,10 @@ If this saved you hours of setup time, consider a small donation:
 
 <div align="center">
 
-### Bitcoin (BTC)
-```
-bc1qevyu9pngzdq54v592whjf9tm5mcztv46zpu40p
-```
-![BTC](https://img.shields.io/badge/BTC-bc1qevyu9pngzdq54v592whjf9tm5mcztv46zpu40p-F7931A?logo=bitcoin&logoColor=white)
-
-### Bitcoin Cash (BCH)
-```
-qp2yjsakctklphd32f3ut75zc08ntcrnf5ryhfvj86
-```
-![BCH](https://img.shields.io/badge/BCH-qp2yjsakctklphd32f3ut75zc08ntcrnf5ryhfvj86-8DC351?logo=bitcoincash&logoColor=white)
+| Currency | Address |
+|----------|---------|
+| ![BTC](https://img.shields.io/badge/Bitcoin-BTC-F7931A?logo=bitcoin&logoColor=white) | `bc1qevyu9pngzdq54v592whjf9tm5mcztv46zpu40p` |
+| ![BCH](https://img.shields.io/badge/Bitcoin_Cash-BCH-8DC351?logo=bitcoincash&logoColor=white) | `qp2yjsakctklphd32f3ut75zc08ntcrnf5ryhfvj86` |
 
 *Every satoshi helps keep this project maintained and updated!* 🙏
 
@@ -235,7 +228,7 @@ qp2yjsakctklphd32f3ut75zc08ntcrnf5ryhfvj86
 
 ## 📄 License
 
-MIT — free to use, modify, and share.
+[MIT License](LICENSE) — free to use, modify, and share.
 
 ---
 
