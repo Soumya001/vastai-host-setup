@@ -628,7 +628,7 @@ for m in data.get('machines',[]):
   echo -e "  Public IP     : ${CYAN}$PUBLIC_IP${RESET}"
   echo -e "  Kaalia ports  : ${CYAN}${ACTUAL_PORTS}${RESET}  ← forward these on router"
   echo -e "  GPU price     : ${CYAN}\$${GPU_PRICE}/hr${RESET}"
-  echo -e "  Listing ends  : ${CYAN}90 days from now${RESET} (run scripts/relist.sh to renew)"
+  echo -e "  Listing ends  : ${CYAN}6 months from now${RESET} (run scripts/relist.sh every ~5 months)"
   echo ""
   echo -e "  Services:"
   svc_ok() { systemctl is-active --quiet "$1" 2>/dev/null && echo -e "${GREEN}running${RESET}" || echo -e "${RED}stopped${RESET}"; }
@@ -653,7 +653,7 @@ for m in data.get('machines',[]):
   echo -e "    ${CYAN}vastai show machines${RESET}                              — live status"
   echo -e "    ${CYAN}journalctl -u vastai.service -f${RESET}                   — kaalia logs"
   echo -e "    ${CYAN}bash scripts/status.sh${RESET}                            — quick health check"
-  echo -e "    ${CYAN}bash scripts/relist.sh${RESET}                            — refresh 90-day listing"
+  echo -e "    ${CYAN}bash scripts/relist.sh${RESET}                            — refresh 6-month listing"
   echo ""
 }
 

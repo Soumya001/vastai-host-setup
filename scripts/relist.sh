@@ -14,12 +14,21 @@ done
 
 echo -e "${YELLOW}Relisting all machines with 6-month duration...${RESET}"
 
-$VASTAI_BIN show machines 2>/dev/null | grep -oP '^\s+\d+\s+\K[0-9]+' | while read -r MID; do
-  GPU_PRICE=$($VASTAI_BIN show machine "$MID" 2>/dev/null | grep -oP 'gpuD_\$/h.*?\K[0-9.]+' | head -1 || echo "0.20")
+# Use --raw JSON output to avoid ANSI color code issues when run non-interactively
+$VASTAI_BIN show machines --raw 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for m in data.get('machines', []):
+    mid = m.get('id', '')
+    price = m.get('listed_gpu_cost') or m.get('dph_base') or 0.20
+    print(f'{mid} {price}')
+" 2>/dev/null | while read -r MID GPU_PRICE; do
+  [[ -z "$MID" ]] && continue
+  MIN_BID=$(python3 -c "print(round(float('${GPU_PRICE}')*0.8,3))" 2>/dev/null || echo 0.16)
   echo -n "  Machine $MID (\$${GPU_PRICE}/hr): "
   $VASTAI_BIN list machine "$MID" \
     --price_gpu "$GPU_PRICE" \
-    --price_min_bid "$(python3 -c "print(round(float('$GPU_PRICE')*0.8,3))" 2>/dev/null || echo 0.16)" \
+    --price_min_bid "$MIN_BID" \
     --price_disk 0.15 \
     --price_inetu 0.005 \
     --price_inetd 0.005 \
