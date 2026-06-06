@@ -1,0 +1,14 @@
+# Never commit sensitive data
+*.key
+*.pem
+*.secret
+api_key
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
