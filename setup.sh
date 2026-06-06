@@ -60,24 +60,13 @@ preflight() {
 
   # Docker check
   if ! command -v docker &>/dev/null; then
-    warn "Docker not found — installing..."
-    apt-get update -qq
-    apt-get install -y ca-certificates curl gnupg -qq
-    install -m 0755 -d /etc/apt/keyrings
-    # Use correct repo for distro (ubuntu vs debian)
-    . /etc/os-release
-    DOCKER_DISTRO="${ID}"
-    [[ "$ID" == "linuxmint" || "$ID" == "pop" ]] && DOCKER_DISTRO="ubuntu"
-    curl -fsSL "https://download.docker.com/linux/${DOCKER_DISTRO}/gpg" | \
-      gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/${DOCKER_DISTRO} ${VERSION_CODENAME} stable" \
-      > /etc/apt/sources.list.d/docker.list
-    apt-get update -qq
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin -qq
+    warn "Docker not found — installing via get.docker.com..."
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    sh /tmp/get-docker.sh
     systemctl enable --now docker
   fi
+  # Add current user to docker group (non-root access)
+  [[ -n "${SUDO_USER:-}" ]] && usermod -aG docker "$SUDO_USER" 2>/dev/null || true
   success "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 }
 
@@ -229,17 +218,49 @@ setup_kaalia() {
   if systemctl is-active --quiet vastai.service 2>/dev/null; then
     info "Kaalia already running — skipping install, updating config only"
   else
-    info "Downloading and running official Vast.ai setup..."
-    curl -fsSL https://vast.ai/install -o /tmp/vast_install.sh
-    bash /tmp/vast_install.sh
+    info "Downloading Vast.ai installer from console.vast.ai/install..."
+    wget -q "https://console.vast.ai/install" -O /tmp/vast-install.py || \
+      curl -fsSL "https://console.vast.ai/install" -o /tmp/vast-install.py
+
+    # Patch 1: Python 3.13+ removed 'pipes' module — replace with shlex
+    sed 's/import pipes/import shlex as pipes/' /tmp/vast-install.py > /tmp/vast-install-patched.py
+
+    # Patch 2: Skip legacy apt-key Docker block (removed in Ubuntu 24.04+)
+    python3 << 'PYEOF' 2>/dev/null || true
+with open('/tmp/vast-install-patched.py', 'r') as f:
+    content = f.read()
+OLD_MARKER = 'process_check_call("curl -qfsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -"'
+NEW_BLOCK = '''    # Docker pre-installed — skip legacy apt-key block
+    with green():
+        log("=> Docker already installed, skipping docker repo setup", level=1)
+    distribution=process_check_output(["bash", "-c", '. /etc/os-release;echo $ID$VERSION_ID'], stderr=logfile).strip()
+    inject_registry_mirrors()
+    inject_exec_opts(distribution)'''
+if OLD_MARKER in content:
+    start = content.find('    # set up docker and nvidia-docker repos')
+    if start == -1:
+        start = content.find(OLD_MARKER)
+    end_marker = 'inject_exec_opts(distribution)'
+    end = content.find(end_marker, start) + len(end_marker)
+    content = content[:start] + NEW_BLOCK + content[end:]
+with open('/tmp/vast-install-patched.py', 'w') as f:
+    f.write(content)
+PYEOF
+
+    info "Running Vast.ai installer with API key..."
+    python3 /tmp/vast-install-patched.py "$VAST_API_KEY" 2>&1 | \
+      grep -E "=>|Error|error|fail|Daemon|Running|GPU|nvidia|Done|success" || true
   fi
 
-  # Set API key
-  echo "$VAST_API_KEY" > /var/lib/vastai_kaalia/api_key
-  chmod 600 /var/lib/vastai_kaalia/api_key
-  success "API key configured"
+  # Set API key in kaalia config (ensure it's current)
+  KAALIA_DIR="/var/lib/vastai_kaalia"
+  if [[ -d "$KAALIA_DIR" ]]; then
+    echo "$VAST_API_KEY" > "${KAALIA_DIR}/api_key"
+    chmod 600 "${KAALIA_DIR}/api_key"
+    success "API key written to ${KAALIA_DIR}/api_key"
+  fi
 
-  # Set public IP in Vast.ai
+  # Set public IP in Vast.ai via API
   curl -s -X PUT \
     -H "Authorization: Bearer ${VAST_API_KEY}" \
     -H "Content-Type: application/json" \
@@ -287,15 +308,25 @@ JSON
 setup_nvidia_toolkit() {
   step "NVIDIA container toolkit"
 
-  if ! dpkg -l | grep -q nvidia-container-toolkit 2>/dev/null; then
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-      gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-      tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  if ! dpkg -l nvidia-container-toolkit &>/dev/null 2>&1; then
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey -o /tmp/nvidia-gpgkey
+    gpg --dearmor < /tmp/nvidia-gpgkey > /tmp/nvidia-gpgkey-binary
+    cp /tmp/nvidia-gpgkey-binary /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    bash -c 'echo "deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/amd64 /" > /etc/apt/sources.list.d/nvidia-container-toolkit.list'
     apt-get update -qq
-    apt-get install -y nvidia-container-toolkit
-    nvidia-ctk runtime configure --runtime=docker
+    apt-get install -y nvidia-container-toolkit -qq
+  fi
+  nvidia-ctk runtime configure --runtime=docker 2>/dev/null || true
+  systemctl restart docker
+  sleep 3
+
+  # Verify GPU is accessible inside Docker
+  info "Verifying GPU access in Docker..."
+  if docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi &>/dev/null; then
+    success "GPU verified inside Docker"
+  else
+    warn "GPU not accessible in Docker — check NVIDIA driver installation"
+    warn "Run: nvidia-smi (should work), then retry setup"
   fi
   success "NVIDIA container toolkit ready"
 }
@@ -381,29 +412,40 @@ TMR
   success "Auto-cleanup timer enabled (runs hourly, skips during active rentals)"
 }
 
-# ── Install vastai CLI ────────────────────────────────────────────────────────
+# ── Resolve vastai CLI path ────────────────────────────────────────────────────
+# Kaalia installs its own CLI at /var/lib/vastai_kaalia/data/vast
+# Pip also installs 'vastai' — prefer Kaalia's own binary
+resolve_vastai_bin() {
+  VASTAI_BIN=""
+  for p in \
+    /var/lib/vastai_kaalia/data/vast \
+    /root/.local/bin/vastai \
+    /usr/local/bin/vastai \
+    /usr/bin/vastai; do
+    [[ -x "$p" ]] && VASTAI_BIN="$p" && break
+  done
+  [[ -z "$VASTAI_BIN" ]] && VASTAI_BIN=$(command -v vastai 2>/dev/null || echo "")
+  export VASTAI_BIN
+}
+
 setup_vastai_cli() {
   step "Vast.ai CLI"
 
-  if ! command -v pip3 &>/dev/null; then
-    apt-get install -y python3-pip -qq
+  # Kaalia's own CLI is preferred; pip install as fallback
+  resolve_vastai_bin
+  if [[ -z "$VASTAI_BIN" ]]; then
+    warn "Kaalia CLI not found — installing pip vastai as fallback..."
+    command -v pip3 &>/dev/null || apt-get install -y python3-pip -qq
+    pip3 install vastai --break-system-packages -q 2>/dev/null || pip3 install vastai -q 2>/dev/null || true
+    resolve_vastai_bin
   fi
 
-  pip3 install vastai --break-system-packages -q 2>/dev/null || pip3 install vastai -q 2>/dev/null || true
-
-  # Find binary — check root's local bin first, then system paths
-  VASTAI_BIN=""
-  for p in /root/.local/bin/vastai /usr/local/bin/vastai /usr/bin/vastai; do
-    [[ -x "$p" ]] && VASTAI_BIN="$p" && break
-  done
-  # Fall back to PATH
-  [[ -z "$VASTAI_BIN" ]] && VASTAI_BIN=$(command -v vastai 2>/dev/null || echo "")
-  [[ -z "$VASTAI_BIN" ]] && warn "vastai CLI not found in PATH — may need to re-run or add ~/.local/bin to PATH" && return
+  if [[ -z "$VASTAI_BIN" ]]; then
+    warn "vastai CLI not found — listing and self-test will be skipped"
+    return
+  fi
 
   $VASTAI_BIN set api-key "$VAST_API_KEY" 2>/dev/null || true
-
-  # Export for use in later functions
-  export VASTAI_BIN
   success "vastai CLI: $VASTAI_BIN ($($VASTAI_BIN --version 2>/dev/null || echo 'installed'))"
 }
 
@@ -468,20 +510,24 @@ list_machine() {
     return
   fi
 
-  VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
-
-  # End date: 90 days from now
-  END_DATE=$(python3 -c "import time; print(int(time.time() + 90*86400))")
+  resolve_vastai_bin 2>/dev/null || true
+  VASTAI_BIN="${VASTAI_BIN:-}"
+  if [[ -z "$VASTAI_BIN" ]]; then
+    warn "vastai CLI not available — skipping marketplace listing"
+    warn "Run manually: vastai list machine $MACHINE_ID --price_gpu $GPU_PRICE --duration '6 months'"
+    return
+  fi
 
   $VASTAI_BIN list machine "$MACHINE_ID" \
     --price_gpu "$GPU_PRICE" \
     --price_min_bid "$MIN_BID_PRICE" \
-    --price_disk 0.01 \
+    --price_disk 0.15 \
     --price_inetu 0.005 \
     --price_inetd 0.005 \
-    --end_date "$END_DATE" 2>&1 || warn "Listing failed — run manually after Kaalia fully starts"
+    --min_chunk 1 \
+    --duration "6 months" 2>&1 || warn "Listing failed — run manually after Kaalia fully starts"
 
-  success "Machine $MACHINE_ID listed at \$${GPU_PRICE}/GPU/hr (expires in 90 days)"
+  success "Machine $MACHINE_ID listed at \$${GPU_PRICE}/GPU/hr (duration: 6 months)"
 }
 
 # ── Self test ─────────────────────────────────────────────────────────────────
@@ -491,7 +537,12 @@ run_self_test() {
   MACHINE_ID=$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || echo "")
   [[ -z "$MACHINE_ID" ]] && warn "Machine ID not found — skipping self-test" && return
 
-  VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
+  resolve_vastai_bin 2>/dev/null || true
+  VASTAI_BIN="${VASTAI_BIN:-}"
+  if [[ -z "$VASTAI_BIN" ]]; then
+    warn "vastai CLI not available — skipping self-test"
+    return
+  fi
 
   read -rp "Run self-test now? This takes ~3 minutes and verifies the machine on Vast.ai [Y/n]: " run_test
   [[ "${run_test,,}" == "n" ]] && info "Skipped — run later: $VASTAI_BIN self-test machine --ignore-requirements $MACHINE_ID" && return
@@ -543,7 +594,8 @@ show_router_guide() {
 # ── Final summary ─────────────────────────────────────────────────────────────
 print_summary() {
   MACHINE_ID=$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || echo "pending")
-  VASTAI_BIN="${VASTAI_BIN:-$(command -v vastai 2>/dev/null || echo /root/.local/bin/vastai)}"
+  resolve_vastai_bin 2>/dev/null || true
+  VASTAI_BIN="${VASTAI_BIN:-vastai}"
 
   # Detect actual listening ports from Kaalia (ports >1024, not 2375/Docker API, not SSH)
   ACTUAL_PORTS=$(ss -tlnp 2>/dev/null \
