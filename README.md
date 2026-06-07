@@ -12,7 +12,7 @@
 
 <br/>
 
-> **Automates everything:** static IP, port forwarding guide, Kaalia daemon install, Docker config, NVIDIA setup, marketplace listing, self-test verification, and hourly storage cleanup — all from a single interactive script.
+> **Automates everything:** static IP, port forwarding guide, Kaalia daemon install, Docker config, NVIDIA setup, marketplace listing, self-test verification, hourly storage cleanup, and **auto price adjustment** — all from a single interactive script.
 
 </div>
 
@@ -40,6 +40,7 @@ Most GPU owners lose money because setup is complex. This script handles **every
 - ❓ Unknown CPU showing on dashboard → **Docker image corruption fix**
 - 💾 Disk fills up after rentals → **hourly auto-cleanup with fstrim**
 - ✅ Machine stays unverified → **self-test runs automatically**
+- 💰 Competitors undercut your price → **hourly auto price watcher keeps you cheapest**
 
 ---
 
@@ -123,6 +124,7 @@ All machines can share **one public IP** — port ranges separate them.
 | 📖 dmidecode | Installs + sudoers (fixes "Unknown CPU" on dashboard) |
 | 🏃 Services | Starts vastai + metrics, disables broken bouncer |
 | 🔄 Auto-cleanup | Hourly timer: prune containers + build cache + fstrim |
+| 💰 Price watcher | Hourly cron: checks market, auto-undercuts cheapest competitor |
 | 📋 Listing | Lists machine on marketplace with your pricing |
 | ✅ Self-test | Runs Vast.ai verification (GPU, RAM, ECC, NCCL tests) |
 
@@ -138,7 +140,8 @@ vastai-host-setup/
 └── scripts/
     ├── status.sh         ← Live machine health check
     ├── cleanup_now.sh    ← Manual docker prune + fstrim
-    └── relist.sh         ← Refresh 6-month marketplace listing
+    ├── relist.sh         ← Refresh 6-month marketplace listing
+    └── price_watcher.sh  ← Auto price adjuster (runs hourly via cron)
 ```
 
 ```bash
@@ -150,6 +153,39 @@ sudo bash scripts/cleanup_now.sh
 
 # Refresh listing (run every ~5 months)
 bash scripts/relist.sh
+
+# Run price watcher manually (also runs automatically every hour)
+python3 scripts/price_watcher.sh
+```
+
+---
+
+## 💰 Auto Price Watcher
+
+The `price_watcher.sh` script runs **every hour via cron** and automatically adjusts your prices to stay the cheapest on the market.
+
+**How it works:**
+1. 📊 Fetches current market prices for your GPU model from Vast.ai
+2. 🏆 Finds the **cheapest competitor** (excluding your own machines)
+3. 💲 Sets your price to **5% below theirs** so you're always #1 cheapest
+4. 🛑 Skips machines that are **currently rented** — never interrupts an active rental
+5. 🔒 Respects **floor prices** so you never rent at a loss
+
+| GPU | Floor price (shown to renters) |
+|-----|-------------------------------|
+| RTX 5060 Ti | $0.080/hr minimum |
+| RTX 5070 | $0.120/hr minimum |
+| RTX 5080 | $0.173/hr minimum |
+
+**Setup (one time):**
+```bash
+# Add to crontab — runs every hour automatically
+(crontab -l 2>/dev/null; echo "0 * * * * /usr/bin/python3 /path/to/scripts/price_watcher.sh >> ~/vastai_price_watcher.log 2>&1") | crontab -
+```
+
+**Check logs:**
+```bash
+tail -50 ~/vastai_price_watcher.log
 ```
 
 ---
