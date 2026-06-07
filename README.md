@@ -142,8 +142,8 @@ vastai-host-setup/
     ├── status.sh         ← Live machine health check
     ├── cleanup_now.sh    ← Manual docker prune + fstrim
     ├── relist.sh         ← Refresh 6-month marketplace listing
-    ├── price_watcher.sh  ← Auto price adjuster (runs hourly via cron)
-    └── watchdog.sh       ← Auto-restarts vastai.service if stuck (every 15 min)
+
+    └── manager.sh        ← Watchdog + price adjuster in one (runs every 15 min)
 ```
 
 ```bash
