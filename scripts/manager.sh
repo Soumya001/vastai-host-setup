@@ -19,7 +19,7 @@ OUR_IDS   = {119138, 119163, 119168, 137402}
 
 def log(msg):
     line = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
-    print(line, flush=True)
+    # no print — cron redirects stdout to the same LOG file, which would double every line
     try:
         with open(LOG, "a") as f:
             f.write(line + "\n")
@@ -138,7 +138,7 @@ def price_watcher(vastai_bin):
         mid      = m.get("id")
         hostname = m.get("hostname", "?")
         gpu      = m.get("gpu_name", "")
-        cur      = m.get("listed_gpu_cost", 0)
+        cur      = m.get("listed_gpu_cost") or 0  # API can return null
         renting  = m.get("current_rentals_running", 0)
 
         if renting:
@@ -196,13 +196,19 @@ if not acquire_lock():
 
 try:
     rotate_log()
-    watchdog()
+    try:
+        watchdog()
+    except Exception as e:
+        log(f"WATCHDOG: unexpected error — {e}")
 
     vastai_bin = find_vastai()
     if not vastai_bin:
         log("PRICE: vastai CLI not found — skipping price update")
     elif should_run_price():
-        price_watcher(vastai_bin)
-        mark_price_run()
+        try:
+            price_watcher(vastai_bin)
+            mark_price_run()
+        except Exception as e:
+            log(f"PRICE: unexpected error — {e}")
 finally:
     release_lock()
