@@ -125,6 +125,7 @@ All machines can share **one public IP** — port ranges separate them.
 | 🏃 Services | Starts vastai + metrics, disables broken bouncer |
 | 🔄 Auto-cleanup | Hourly timer: prune containers + build cache + fstrim |
 | 💰 Price watcher | Hourly cron: checks market, auto-undercuts cheapest competitor |
+| 🐕 Watchdog | Every 15 min: restarts Kaalia if down or containers stuck-failing |
 | 📋 Listing | Lists machine on marketplace with your pricing |
 | ✅ Self-test | Runs Vast.ai verification (GPU, RAM, ECC, NCCL tests) |
 
@@ -141,7 +142,8 @@ vastai-host-setup/
     ├── status.sh         ← Live machine health check
     ├── cleanup_now.sh    ← Manual docker prune + fstrim
     ├── relist.sh         ← Refresh 6-month marketplace listing
-    └── price_watcher.sh  ← Auto price adjuster (runs hourly via cron)
+    ├── price_watcher.sh  ← Auto price adjuster (runs hourly via cron)
+    └── watchdog.sh       ← Auto-restarts vastai.service if stuck (every 15 min)
 ```
 
 ```bash
@@ -156,6 +158,9 @@ bash scripts/relist.sh
 
 # Run price watcher manually (also runs automatically every hour)
 python3 scripts/price_watcher.sh
+
+# Run watchdog manually (also runs automatically every 15 min)
+bash scripts/watchdog.sh
 ```
 
 ---
